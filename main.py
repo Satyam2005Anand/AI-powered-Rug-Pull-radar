@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,6 +59,54 @@ def get_risk(token_address: str):
         key=lambda p: (p.get("liquidity") or {}).get("usd") or 0
     )
 
+    liquidity_usd = (pair.get("liquidity") or {}).get("usd") or 0
+
+    pair_created_at = pair.get("pairCreatedAt")
+
+    if pair_created_at:
+        created_time = datetime.fromtimestamp(
+            pair_created_at / 1000,
+            tz=timezone.utc
+        )
+        pool_age_days = (
+            datetime.now(timezone.utc) - created_time
+        ).days
+    else:
+        pool_age_days = None
+
+    if pool_age_days is None:
+        pool_age_risk = 100
+    elif pool_age_days < 7:
+        pool_age_risk = 100
+    elif pool_age_days < 30:
+        pool_age_risk = 75
+    elif pool_age_days < 180:
+        pool_age_risk = 40
+    else:
+        pool_age_risk = 10
+
+    if liquidity_usd < 10000:
+        liquidity_risk = 100
+    elif liquidity_usd < 50000:
+        liquidity_risk = 75
+    elif liquidity_usd < 250000:
+        liquidity_risk = 40
+    else:
+        liquidity_risk = 10
+
+    risk_score = round(
+        (liquidity_risk + pool_age_risk) / 2
+    )
+
+
+    if risk_score <= 30:
+        risk_level = "LOW"
+    elif risk_score <= 60:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "HIGH"
+
+    
     return {
         "token_address": token_address,
         "chain": chain_id,
@@ -68,8 +117,11 @@ def get_risk(token_address: str):
         "volume_24h_usd": (pair.get("volume") or {}).get("h24"),
         "price_change_24h_pct": (pair.get("priceChange") or {}).get("h24"),
         "pair_created_at": pair.get("pairCreatedAt"),
-        "risk_score": None,
-        "risk_level": "NOT_SCORED",
+        "pool_age_days": pool_age_days,
+        "pool_age_risk": pool_age_risk,
+        "liquidity_risk": liquidity_risk,
+        "risk_score": risk_score,
+        "risk_level": risk_level,
         "indicators": [],
         "message": "Real market data fetched; risk scoring not implemented yet"
     }
